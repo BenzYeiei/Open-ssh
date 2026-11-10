@@ -23,9 +23,10 @@
    - [7.7 SFTP](#77-sftp-uploaddownload-files)
    - [7.8 SCP](#78-scp-copy-file-แบบ-one-liner)
    - [7.9 แก้ปัญหา Permission บน Windows](#79-แก้ปัญหา-permission-ของ-private-key-บน-windows)
-8. [การเข้าถึงจากภายนอกผ่าน VPN](#8-vpn-สำหรับเข้าจากภายนอก)
-9. [เพิ่มความปลอดภัยเพิ่มเติม (Hardening)](#9-security-hardening)
-10. [Troubleshooting](#10-troubleshooting)
+8. [เพิ่ม Client User ใหม่](#8-เพิ่ม-client-user-ใหม่)
+9. [การเข้าถึงจากภายนอกผ่าน VPN](#9-vpn-สำหรับเข้าจากภายนอก)
+10. [เพิ่มความปลอดภัยเพิ่มเติม (Hardening)](#10-security-hardening)
+11. [Troubleshooting](#11-troubleshooting)
 
 ---
 
@@ -114,7 +115,7 @@ Subsystem sftp sftp-server.exe
 # =============================================
 # Allow Users (จำกัดเฉพาะ user ที่กำหนด)
 # =============================================
-AllowUsers deploy administrator
+AllowUsers deverloper administrator
 
 # =============================================
 # Banner — แสดงข้อความตอน login (optional)
@@ -234,10 +235,10 @@ ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx your
 
 ```powershell
 # สร้าง folder .ssh ให้ user deploy
-New-Item -ItemType Directory -Path "C:\Users\deploy\.ssh" -Force
+New-Item -ItemType Directory -Path "C:\Users\deverloper\.ssh" -Force
 
 # สร้างไฟล์ authorized_keys แล้ววาง public key ที่ได้รับจาก client ลงไป
-notepad C:\Users\deploy\.ssh\authorized_keys
+notepad C:\Users\deverloper\.ssh\authorized_keys
 ```
 
 วาง public key ทั้งบรรทัดลงในไฟล์ แล้ว Save ถ้ามีหลาย client ให้วางคนละบรรทัด:
@@ -251,17 +252,17 @@ ssh-ed25519 AAAAC3NzaC1lZ... user2-sit
 
 ### ขั้นตอนที่ 3 — แก้ Permission ของ authorized_keys (สำคัญมาก)
 
-บน Windows ถ้า permission ของไฟล์กว้างเกินไป SSH จะ **ignore** ไฟล์นี้ทันทีโดยไม่แจ้ง error ชัดเจน ต้องล็อคให้เฉพาะ user deploy และ SYSTEM เท่านั้นที่เข้าถึงได้:
+บน Windows ถ้า permission ของไฟล์กว้างเกินไป SSH จะ **ignore** ไฟล์นี้ทันทีโดยไม่แจ้ง error ชัดเจน ต้องล็อคให้เฉพาะ user deverloper และ SYSTEM เท่านั้นที่เข้าถึงได้:
 
 ```powershell
-$file = "C:\Users\deploy\.ssh\authorized_keys"
+$file = "C:\Users\deverloper\.ssh\authorized_keys"
 $acl = Get-Acl $file
 
 # ตัด permission ที่ inherit มาจาก folder แม่ออกทั้งหมด
 $acl.SetAccessRuleProtection($true, $false)
 
-# ให้สิทธิ์เฉพาะ user deploy และ SYSTEM
-$rule1 = New-Object System.Security.AccessControl.FileSystemAccessRule("deploy","FullControl","Allow")
+# ให้สิทธิ์เฉพาะ user deverloper และ SYSTEM
+$rule1 = New-Object System.Security.AccessControl.FileSystemAccessRule("deverloper","FullControl","Allow")
 $rule2 = New-Object System.Security.AccessControl.FileSystemAccessRule("SYSTEM","FullControl","Allow")
 $acl.SetAccessRule($rule1)
 $acl.SetAccessRule($rule2)
@@ -271,7 +272,7 @@ Set-Acl $file $acl
 ตรวจสอบว่า permission ถูกต้อง:
 
 ```powershell
-Get-Acl "C:\Users\deploy\.ssh\authorized_keys" | Format-List
+Get-Acl "C:\Users\deverloper\.ssh\authorized_keys" | Format-List
 ```
 
 ---
@@ -280,7 +281,7 @@ Get-Acl "C:\Users\deploy\.ssh\authorized_keys" | Format-List
 
 ```powershell
 # รันจากเครื่อง client
-ssh -i "$env:USERPROFILE\.ssh\sit_deploy_key" deploy@192.168.1.50
+ssh -i "$env:USERPROFILE\.ssh\sit_deploy_key" deverloper@192.168.1.50
 ```
 
 ถ้าเข้าได้โดยไม่ถามรหัสผ่าน (หรือถามแค่ passphrase ของ key) แสดงว่าตั้งค่าถูกต้องแล้ว
@@ -289,9 +290,7 @@ ssh -i "$env:USERPROFILE\.ssh\sit_deploy_key" deploy@192.168.1.50
 
 ## 5. ตั้งค่า Default Shell
 
-ค่าเริ่มต้น SSH บน Windows จะเปิด `cmd.exe` ซึ่งต่างจาก Linux มาก แนะนำให้เปลี่ยนเป็น PowerShell หรือ Bash (WSL)
-
-### Option A — PowerShell (แนะนำสำหรับ Windows-native)
+ค่าเริ่มต้น SSH บน Windows จะเปิด `cmd.exe` ต้องเปลี่ยนเป็น PowerShell รันบน **Server** ใน PowerShell Administrator:
 
 ```powershell
 New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" `
@@ -301,35 +300,35 @@ New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" `
     -Force
 ```
 
-### Option B — Git Bash (bash.exe จาก Git for Windows)
+ตรวจสอบว่าตั้งค่าถูกต้อง:
 
 ```powershell
-New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" `
-    -Name DefaultShell `
-    -Value "C:\Program Files\Git\bin\bash.exe" `
-    -PropertyType String `
-    -Force
+Get-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" -Name DefaultShell
 ```
 
-### Option C — WSL Bash (เหมือน Linux มากที่สุด)
+### Oh My Posh
 
-ต้องติดตั้ง WSL ก่อน:
+Server ใช้ oh-my-posh ผ่าน `microsoft.powershell_profile.ps1` ซึ่งจะโหลดทุกครั้งที่เปิด PowerShell รวมถึงตอน SSH เข้ามาด้วย
+
+ถ้า terminal ของ client ไม่มี Nerd Font จะแสดง icon เป็นกล่องสี่เหลี่ยม แก้ได้สองวิธี:
+
+**วิธีที่ 1 — ติดตั้ง Nerd Font บนเครื่อง client** เช่น `CaskaydiaCove NF` จาก [nerdfonts.com](https://www.nerdfonts.com) แล้วตั้งเป็น font ใน Windows Terminal
+
+**วิธีที่ 2 — ปิด oh-my-posh เฉพาะ SSH session** แก้ไฟล์ profile บน server:
 
 ```powershell
-wsl --install -d Ubuntu
+notepad $PROFILE
 ```
 
-แล้วชี้ default shell:
+เพิ่มเงื่อนไขครอบ oh-my-posh:
 
 ```powershell
-New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" `
-    -Name DefaultShell `
-    -Value "C:\Windows\System32\wsl.exe" `
-    -PropertyType String `
-    -Force
+if (-not $env:SSH_CONNECTION) {
+    oh-my-posh init pwsh | Invoke-Expression
+}
 ```
 
-> **หมายเหตุ:** WSL shell จะให้ environment เหมือน Linux มากที่สุด เหมาะกับการ deploy script ที่เขียนสำหรับ Linux
+`$env:SSH_CONNECTION` จะมีค่าเฉพาะตอนเข้าผ่าน SSH ถ้านั่งใช้หน้าเครื่องตรงๆ จะเป็นค่าว่าง ทำให้ oh-my-posh ทำงานเฉพาะหน้าเครื่องเท่านั้น
 
 ---
 
@@ -342,13 +341,13 @@ New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" `
 ### ขั้นตอนที่ 1 — สร้าง User
 
 ```powershell
-$password = Read-Host -AsSecureString "Enter password for deploy user"
-New-LocalUser -Name "deploy" -Password $password -FullName "SIT Deploy User" -Description "SSH deploy account"
+$password = Read-Host -AsSecureString "Enter password for deverloper"
+New-LocalUser -Name "deverloper" -Password $password -FullName "SIT Deploy User" -Description "SSH deploy account"
 ```
 
 | Option | ความหมาย |
 |--------|----------|
-| `-Name "deploy"` | ชื่อ username ที่ใช้ตอน SSH เข้า เช่น `ssh deploy@192.168.1.50` |
+| `-Name "deverloper"` | ชื่อ username ที่ใช้ตอน SSH เข้า เช่น `ssh deverloper@192.168.1.50` |
 | `-Password` | password ของ user นี้บนเครื่อง Windows — ใช้ตอน login ด้วย password แต่ถ้าใช้ Key auth จะไม่ได้ใช้ตอน SSH |
 | `-FullName` | ชื่อแสดงใน Windows user management |
 | `-Description` | หมายเหตุบอกว่า account นี้ใช้ทำอะไร |
@@ -357,10 +356,10 @@ New-LocalUser -Name "deploy" -Password $password -FullName "SIT Deploy User" -De
 
 ```powershell
 # เพิ่มเข้า Users group (สิทธิ์ขั้นต่ำ)
-Add-LocalGroupMember -Group "Users" -Member "deploy"
+Add-LocalGroupMember -Group "Users" -Member "deverloper"
 
 # เพิ่มเข้า Administrators เฉพาะถ้า deploy script ต้องการสิทธิ์สูง
-# Add-LocalGroupMember -Group "Administrators" -Member "deploy"
+# Add-LocalGroupMember -Group "Administrators" -Member "deverloper"
 ```
 
 ### ขั้นตอนที่ 3 — สร้าง Working Directory สำหรับ Deploy
@@ -369,10 +368,10 @@ Add-LocalGroupMember -Group "Users" -Member "deploy"
 # สร้าง folder สำหรับวาง deploy artifacts
 New-Item -ItemType Directory -Path "C:\sit-deploy" -Force
 
-# ให้สิทธิ์ Modify แก่ user deploy (อ่าน เขียน ลบได้ แต่ไม่ได้เป็นเจ้าของ)
+# ให้สิทธิ์ Modify แก่ user deverloper (อ่าน เขียน ลบได้ แต่ไม่ได้เป็นเจ้าของ)
 $acl = Get-Acl "C:\sit-deploy"
 $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-    "deploy", "Modify", "ContainerInherit,ObjectInherit", "None", "Allow"
+    "deverloper", "Modify", "ContainerInherit,ObjectInherit", "None", "Allow"
 )
 $acl.SetAccessRule($rule)
 Set-Acl "C:\sit-deploy" $acl
@@ -387,7 +386,7 @@ Set-Acl "C:\sit-deploy" $acl
 ### ตรวจสอบ User ที่สร้าง
 
 ```powershell
-Get-LocalUser -Name "deploy"
+Get-LocalUser -Name "deverloper"
 Get-LocalGroupMember -Group "Users"
 ```
 
@@ -470,13 +469,13 @@ cat ~/.ssh/sit_deploy_key.pub
 # ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... yourname-sit
 ```
 
-Admin จะนำ public key ไปวางใน `C:\Users\deploy\.ssh\authorized_keys` บน server (ดูข้อ 4)
+Admin จะนำ public key ไปวางใน `C:\Users\deverloper\.ssh\authorized_keys` บน server (ดูข้อ 4)
 
 ---
 
 ### 7.4 ตั้งค่า SSH Config File (แนะนำ — ไม่ต้องพิมพ์ option ทุกครั้ง)
 
-SSH Config File คือไฟล์ที่เก็บการตั้งค่าการเชื่อมต่อของแต่ละ server ไว้ล่วงหน้า แทนที่จะต้องพิมพ์ option ยาวๆ ทุกครั้ง เช่น `ssh -i ~/.ssh/sit_deploy_key -p 22 deploy@192.168.1.50` ก็ย่อเหลือแค่ `ssh sit`
+SSH Config File คือไฟล์ที่เก็บการตั้งค่าการเชื่อมต่อของแต่ละ server ไว้ล่วงหน้า แทนที่จะต้องพิมพ์ option ยาวๆ ทุกครั้ง เช่น `ssh -i ~/.ssh/sit_deploy_key -p 22 deverloper@192.168.1.50` ก็ย่อเหลือแค่ `ssh sit`
 
 สร้างหรือแก้ไขไฟล์ที่ `C:\Users\<username>\.ssh\config` (ไม่มีนามสกุล):
 
@@ -490,7 +489,7 @@ notepad "$env:USERPROFILE\.ssh\config"
 # SIT Server (ใน LAN)
 Host sit
     HostName 192.168.1.50
-    User deploy
+    User deverloper
     Port 22
     IdentityFile C:\Users\<username>\.ssh\sit_deploy_key
     ServerAliveInterval 60
@@ -499,7 +498,7 @@ Host sit
 # SIT Server ผ่าน VPN (จากภายนอก)
 Host sit-vpn
     HostName 192.168.1.50
-    User deploy
+    User deverloper
     Port 22
     IdentityFile C:\Users\<username>\.ssh\sit_deploy_key
     ServerAliveInterval 60
@@ -551,13 +550,13 @@ ipconfig | Select-String "IPv4"
 ssh sit
 
 # หรือพิมพ์เต็ม
-ssh deploy@192.168.1.50
+ssh deverloper@192.168.1.50
 
 # Key login ระบุ identity file เอง
-ssh -i ~/.ssh/sit_deploy_key deploy@192.168.1.50
+ssh -i ~/.ssh/sit_deploy_key deverloper@192.168.1.50
 
 # ระบุ port ถ้าเปลี่ยนจาก 22
-ssh -p 2222 -i ~/.ssh/sit_deploy_key deploy@192.168.1.50
+ssh -p 2222 -i ~/.ssh/sit_deploy_key deverloper@192.168.1.50
 ```
 
 ---
@@ -569,7 +568,7 @@ ssh -p 2222 -i ~/.ssh/sit_deploy_key deploy@192.168.1.50
 sftp sit
 
 # หรือพิมพ์เต็ม
-sftp -i ~/.ssh/sit_deploy_key deploy@192.168.1.50
+sftp -i ~/.ssh/sit_deploy_key deverloper@192.168.1.50
 
 # คำสั่งที่ใช้บ่อยใน SFTP shell
 # put localfile.zip /sit-deploy/     # อัปโหลด
@@ -585,13 +584,13 @@ sftp -i ~/.ssh/sit_deploy_key deploy@192.168.1.50
 
 ```bash
 # อัปโหลดไฟล์ไปยัง server
-scp -i ~/.ssh/sit_deploy_key ./app.zip deploy@192.168.1.50:/sit-deploy/
+scp -i ~/.ssh/sit_deploy_key ./app.zip deverloper@192.168.1.50:/sit-deploy/
 
 # อัปโหลดทั้ง folder
-scp -r -i ~/.ssh/sit_deploy_key ./dist/ deploy@192.168.1.50:/sit-deploy/
+scp -r -i ~/.ssh/sit_deploy_key ./dist/ deverloper@192.168.1.50:/sit-deploy/
 
 # ดาวน์โหลดไฟล์จาก server
-scp -i ~/.ssh/sit_deploy_key deploy@192.168.1.50:/sit-deploy/logs/app.log ./
+scp -i ~/.ssh/sit_deploy_key deverloper@192.168.1.50:/sit-deploy/logs/app.log ./
 
 # ใช้ alias จาก SSH Config (สั้นกว่า)
 scp ./app.zip sit:/sit-deploy/
@@ -618,7 +617,165 @@ Set-Acl $keyFile $acl
 
 ---
 
-## 8. VPN สำหรับเข้าจากภายนอก
+## 8. เพิ่ม Client User ใหม่
+
+เมื่อมี Developer คนใหม่ต้องการ SSH เข้า Server มีขั้นตอนที่แต่ละฝ่ายต้องทำดังนี้
+
+### Flow Overview
+
+```
+[Client — Developer ใหม่]           [Admin — ดูแล Server]
+          │                                   │
+  ① สร้าง SSH Key Pair                        │
+          │                                   │
+  ② ส่ง .pub ให้ Admin ─────────────────────► │
+                                     ③ เพิ่ม Public Key
+                                        ใน authorized_keys
+                                              │
+          │ ◄──────────── แจ้ง IP + username ─┤
+          │                                   │
+  ④ ตั้งค่า SSH Config                        │
+          │                                   │
+  ⑤ ทดสอบ SSH เข้า Server                    │
+          │                                   │
+  ⑥ แจ้ง Admin ว่าเข้าได้แล้ว ──────────────► │
+                                     ⑦ (optional)
+                                        ปิด PasswordAuth
+                                        ถ้าทุก client ใช้ key แล้ว
+```
+
+---
+
+### ① Client — สร้าง SSH Key Pair
+
+สร้าง folder `.ssh` และ key pair บนเครื่องตัวเอง:
+
+```powershell
+# Windows
+New-Item -ItemType Directory -Path "$env:USERPROFILE\.ssh" -Force
+
+ssh-keygen -t ed25519 -C "yourname-sit" -f "$env:USERPROFILE\.ssh\sit_deploy_key"
+```
+
+```bash
+# macOS / Linux
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+
+ssh-keygen -t ed25519 -C "yourname-sit" -f ~/.ssh/sit_deploy_key
+```
+
+ตั้ง passphrase เมื่อถามเสมอ — ถ้า private key หลุดออกไปคนอื่นจะใช้ไม่ได้โดยไม่รู้ passphrase
+
+ไฟล์ที่ได้:
+
+| ไฟล์ | ส่งให้ใคร |
+|------|-----------|
+| `sit_deploy_key` | เก็บไว้บนเครื่องตัวเอง **ห้ามแชร์** |
+| `sit_deploy_key.pub` | ส่งให้ Admin |
+
+---
+
+### ② Client — ดู Public Key เพื่อส่งให้ Admin
+
+```powershell
+# Windows
+Get-Content "$env:USERPROFILE\.ssh\sit_deploy_key.pub"
+```
+
+```bash
+# macOS / Linux
+cat ~/.ssh/sit_deploy_key.pub
+```
+
+ตัวอย่าง output ที่ได้:
+
+```
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx yourname-sit
+```
+
+Copy บรรทัดนี้ทั้งหมดส่งให้ Admin ผ่าน Slack / Teams / Email
+
+---
+
+### ③ Admin — เพิ่ม Public Key บน Server
+
+เปิดไฟล์ `authorized_keys` บน Server:
+
+```powershell
+notepad C:\Users\deverloper\.ssh\authorized_keys
+```
+
+เพิ่ม public key ที่ได้รับต่อท้ายไฟล์ (คนละบรรทัด ถ้ามีหลาย client):
+
+```
+ssh-ed25519 AAAAC3NzaC1lZ... user1-sit
+ssh-ed25519 AAAAC3NzaC1lZ... user2-sit       ← เพิ่มบรรทัดใหม่ที่นี่
+```
+
+บันทึกไฟล์แล้วตรวจสอบว่า permission ยังถูกต้อง:
+
+```powershell
+Get-Acl "C:\Users\deverloper\.ssh\authorized_keys" | Format-List
+# ต้องเห็นแค่ deverloper และ SYSTEM เท่านั้น
+```
+
+> ไม่ต้อง restart sshd — OpenSSH อ่าน `authorized_keys` ทุกครั้งที่มี connection ใหม่
+
+---
+
+### ④ Client — ตั้งค่า SSH Config
+
+สร้างหรือแก้ไข `~/.ssh/config` เพิ่ม Host entry:
+
+```powershell
+notepad "$env:USERPROFILE\.ssh\config"
+```
+
+```sshconfig
+Host sit
+    HostName 192.168.1.50
+    User deverloper
+    Port 22
+    IdentityFile C:\Users\<username>\.ssh\sit_deploy_key
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+```
+
+แทน `<username>` ด้วยชื่อ user Windows ของตัวเอง
+
+---
+
+### ⑤ Client — ทดสอบ SSH
+
+```powershell
+# ใช้ alias จาก config
+ssh sit
+
+# หรือพิมพ์เต็ม
+ssh -i "$env:USERPROFILE\.ssh\sit_deploy_key" deverloper@192.168.1.50
+```
+
+ถ้าเข้าได้สำเร็จจะเห็น PowerShell prompt ของ Server หรือ Banner ที่ตั้งไว้
+
+ถ้าพบปัญหาให้ดูที่ [Troubleshooting](#11-troubleshooting)
+
+---
+
+### ⑦ Admin — ลบ Public Key (กรณีลาออกหรือเปลี่ยนเครื่อง)
+
+เปิด `authorized_keys` และลบบรรทัดของ user นั้นออก:
+
+```powershell
+notepad C:\Users\deverloper\.ssh\authorized_keys
+```
+
+ลบบรรทัดที่มี comment ตรงกับ user ที่ต้องการลบ เช่น `... username-sit` แล้ว Save
+
+ไม่ต้อง restart sshd — มีผลทันทีในการ login ครั้งถัดไป
+
+---
+
+## 9. VPN สำหรับเข้าจากภายนอก
 
 เครื่อง PC/Laptop ที่รัน OpenSSH Server ต้องอยู่ใน LAN เดียวกับ VPN Server หรือเข้าถึงได้จาก VPN subnet
 
@@ -708,7 +865,7 @@ PersistentKeepalive = 25
 #### Developer ที่เชื่อมต่อผ่าน WireGuard จะใช้ IP ที่ได้รับ (เช่น 10.8.0.x) SSH เข้าได้เลย
 
 ```bash
-ssh -i ~/.ssh/sit_deploy_key deploy@10.8.0.2
+ssh -i ~/.ssh/sit_deploy_key deverloper@10.8.0.2
 ```
 
 ### Option C — ใช้ VPN ที่มีอยู่แล้วในบริษัท (Cisco AnyConnect, FortiClient, etc.)
@@ -718,7 +875,7 @@ ssh -i ~/.ssh/sit_deploy_key deploy@10.8.0.2
 3. SSH ตรงไปยัง IP ของเครื่อง Server ใน LAN ได้เลย (ถ้า routing ถูกต้อง)
 
 ```bash
-ssh deploy@192.168.1.50
+ssh deverloper@192.168.1.50
 ```
 
 > **หมายเหตุ:** ต้องให้ Network Admin ของบริษัทเปิด route จาก VPN subnet ไปยัง IP ของเครื่อง
@@ -819,7 +976,7 @@ Get-NetFirewallRule -Name *ssh* | Select-Object DisplayName, Enabled, Direction,
 
 ```powershell
 # ตรวจสอบ permission ของ authorized_keys
-Get-Acl "C:\Users\deploy\.ssh\authorized_keys" | Format-List
+Get-Acl "C:\Users\deverloper\.ssh\authorized_keys" | Format-List
 
 # ดู SSH debug log บน server
 # แก้ใน sshd_config ชั่วคราว:
@@ -837,7 +994,7 @@ Get-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" -Name DefaultShell
 ### ทดสอบ Connection จาก Client แบบ Verbose
 
 ```bash
-ssh -vvv deploy@192.168.1.50
+ssh -vvv deverloper@192.168.1.50
 ```
 
 ---

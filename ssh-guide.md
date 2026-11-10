@@ -335,29 +335,60 @@ New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" `
 
 ## 6. สร้าง Deploy User
 
+แนะนำให้สร้าง user แยกสำหรับ SSH โดยเฉพาะ ไม่ใช้ Administrator account เพื่อจำกัดสิทธิ์ ถ้าถูก compromise จะได้กระทบแค่ส่วนที่ user นี้เข้าถึงได้เท่านั้น
+
+> **ทำบนเครื่อง Server** ใน PowerShell Administrator
+
+### ขั้นตอนที่ 1 — สร้าง User
+
 ```powershell
-# สร้าง local user สำหรับ deploy โดยเฉพาะ
 $password = Read-Host -AsSecureString "Enter password for deploy user"
 New-LocalUser -Name "deploy" -Password $password -FullName "SIT Deploy User" -Description "SSH deploy account"
+```
 
-# เพิ่มเข้า group ตามความจำเป็น (อย่าใส่ Administrators ถ้าไม่จำเป็น)
+| Option | ความหมาย |
+|--------|----------|
+| `-Name "deploy"` | ชื่อ username ที่ใช้ตอน SSH เข้า เช่น `ssh deploy@192.168.1.50` |
+| `-Password` | password ของ user นี้บนเครื่อง Windows — ใช้ตอน login ด้วย password แต่ถ้าใช้ Key auth จะไม่ได้ใช้ตอน SSH |
+| `-FullName` | ชื่อแสดงใน Windows user management |
+| `-Description` | หมายเหตุบอกว่า account นี้ใช้ทำอะไร |
+
+### ขั้นตอนที่ 2 — เพิ่มเข้า Group
+
+```powershell
+# เพิ่มเข้า Users group (สิทธิ์ขั้นต่ำ)
 Add-LocalGroupMember -Group "Users" -Member "deploy"
 
-# ถ้า deploy ต้องรัน script ที่ต้องการสิทธิ์เพิ่มเติม
+# เพิ่มเข้า Administrators เฉพาะถ้า deploy script ต้องการสิทธิ์สูง
 # Add-LocalGroupMember -Group "Administrators" -Member "deploy"
 ```
 
-### ตั้ง Working Directory สำหรับ Deploy
+### ขั้นตอนที่ 3 — สร้าง Working Directory สำหรับ Deploy
 
 ```powershell
-# สร้าง folder สำหรับ deploy artifacts
+# สร้าง folder สำหรับวาง deploy artifacts
 New-Item -ItemType Directory -Path "C:\sit-deploy" -Force
 
-# ให้สิทธิ์ user deploy
+# ให้สิทธิ์ Modify แก่ user deploy (อ่าน เขียน ลบได้ แต่ไม่ได้เป็นเจ้าของ)
 $acl = Get-Acl "C:\sit-deploy"
-$rule = New-Object System.Security.AccessControl.FileSystemAccessRule("deploy","Modify","ContainerInherit,ObjectInherit","None","Allow")
+$rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+    "deploy", "Modify", "ContainerInherit,ObjectInherit", "None", "Allow"
+)
 $acl.SetAccessRule($rule)
 Set-Acl "C:\sit-deploy" $acl
+```
+
+| Permission | ความหมาย |
+|------------|----------|
+| `Modify` | อ่าน เขียน แก้ไข ลบไฟล์ได้ แต่ไม่สามารถเปลี่ยน permission ของ folder ได้ |
+| `ContainerInherit` | sub-folder ที่สร้างใหม่ใน `C:\sit-deploy` จะได้รับ permission นี้ด้วย |
+| `ObjectInherit` | ไฟล์ที่สร้างใหม่ใน `C:\sit-deploy` จะได้รับ permission นี้ด้วย |
+
+### ตรวจสอบ User ที่สร้าง
+
+```powershell
+Get-LocalUser -Name "deploy"
+Get-LocalGroupMember -Group "Users"
 ```
 
 ---

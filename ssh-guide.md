@@ -208,33 +208,56 @@ Get-NetFirewallAddressFilter -AssociatedNetFirewallRule (Get-NetFirewallRule -Na
 
 ## 4. Key-based Authentication
 
-### สร้าง SSH Key pair บนเครื่อง Client (เครื่องที่จะ SSH เข้ามา)
+Key-based Authentication คือการยืนยันตัวตนด้วย SSH Key แทนการพิมพ์ password ทุกครั้ง โดยใช้หลักการ **Public/Private Key Pair**:
 
-```bash
-# รันบนเครื่อง client (Linux/Mac/Windows Git Bash)
-ssh-keygen -t ed25519 -C "sit-deploy-key" -f ~/.ssh/sit_deploy_key
+- **Private Key** — เก็บไว้บนเครื่อง client ห้ามแชร์
+- **Public Key** — นำไปวางบน server ใน `authorized_keys` เปรียบเหมือนกุญแจล็อค
+
+เวลา SSH เข้า server จะนำ private key มาพิสูจน์กับ public key ที่วางไว้ ถ้าตรงกันก็เข้าได้โดยไม่ต้องใช้ password
+
+> **ข้อ 4 นี้ทำบนเครื่อง Server** — admin เป็นคนดำเนินการ
+> ส่วนการสร้าง key บนเครื่อง client ดูได้ที่ข้อ 7.2
+
+---
+
+### ขั้นตอนที่ 1 — รับ Public Key จาก Client
+
+ให้ client ส่งเนื้อหาของไฟล์ `sit_deploy_key.pub` มาให้ ตัวอย่างเนื้อหาที่ได้รับ:
+
+```
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx yourname-sit
 ```
 
-### คัดลอก Public Key ไปวางบนเครื่อง Server (Windows)
+---
+
+### ขั้นตอนที่ 2 — สร้าง folder .ssh และไฟล์ authorized_keys บน Server
 
 ```powershell
-# บน Windows Server — สร้าง folder .ssh ให้ user deploy
+# สร้าง folder .ssh ให้ user deploy
 New-Item -ItemType Directory -Path "C:\Users\deploy\.ssh" -Force
 
-# วาง public key (เนื้อหาของ sit_deploy_key.pub) ลงในไฟล์นี้
+# สร้างไฟล์ authorized_keys แล้ววาง public key ที่ได้รับจาก client ลงไป
 notepad C:\Users\deploy\.ssh\authorized_keys
 ```
 
-### แก้ไข Permission ของ authorized_keys (สำคัญมาก)
+วาง public key ทั้งบรรทัดลงในไฟล์ แล้ว Save ถ้ามีหลาย client ให้วางคนละบรรทัด:
 
-Windows ต้องการ permission ที่เข้มงวด ไม่เช่นนั้น SSH จะ ignore key:
+```
+ssh-ed25519 AAAAC3NzaC1lZ... user1-sit
+ssh-ed25519 AAAAC3NzaC1lZ... user2-sit
+```
+
+---
+
+### ขั้นตอนที่ 3 — แก้ Permission ของ authorized_keys (สำคัญมาก)
+
+บน Windows ถ้า permission ของไฟล์กว้างเกินไป SSH จะ **ignore** ไฟล์นี้ทันทีโดยไม่แจ้ง error ชัดเจน ต้องล็อคให้เฉพาะ user deploy และ SYSTEM เท่านั้นที่เข้าถึงได้:
 
 ```powershell
-# ตั้ง permission ให้ถูกต้อง
 $file = "C:\Users\deploy\.ssh\authorized_keys"
 $acl = Get-Acl $file
 
-# ลบ inheritance
+# ตัด permission ที่ inherit มาจาก folder แม่ออกทั้งหมด
 $acl.SetAccessRuleProtection($true, $false)
 
 # ให้สิทธิ์เฉพาะ user deploy และ SYSTEM
@@ -245,12 +268,22 @@ $acl.SetAccessRule($rule2)
 Set-Acl $file $acl
 ```
 
-### ทดสอบ login ด้วย Key
+ตรวจสอบว่า permission ถูกต้อง:
 
-```bash
-# จากเครื่อง client
-ssh -i ~/.ssh/sit_deploy_key deploy@192.168.1.xxx
+```powershell
+Get-Acl "C:\Users\deploy\.ssh\authorized_keys" | Format-List
 ```
+
+---
+
+### ขั้นตอนที่ 4 — ทดสอบ login ด้วย Key
+
+```powershell
+# รันจากเครื่อง client
+ssh -i "$env:USERPROFILE\.ssh\sit_deploy_key" deploy@192.168.1.50
+```
+
+ถ้าเข้าได้โดยไม่ถามรหัสผ่าน (หรือถามแค่ passphrase ของ key) แสดงว่าตั้งค่าถูกต้องแล้ว
 
 ---
 

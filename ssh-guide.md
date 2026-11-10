@@ -13,7 +13,16 @@
 4. [Key-based Authentication (ไม่ใช้ Password)](#4-key-based-authentication)
 5. [ตั้งค่า Default Shell เป็น Bash (Git Bash / WSL)](#5-ตั้งค่า-default-shell)
 6. [สร้าง User สำหรับ Deploy (deploy user)](#6-สร้าง-deploy-user)
-7. [ทดสอบเชื่อมต่อใน LAN เดียวกัน](#7-ทดสอบเชื่อมต่อใน-lan)
+7. [ติดตั้งและตั้งค่า SSH Client + ทดสอบเชื่อมต่อใน LAN](#7-ติดตั้งและตั้งค่า-ssh-client--ทดสอบเชื่อมต่อใน-lan)
+   - [7.1 ติดตั้ง SSH Client](#71-ติดตั้ง-ssh-client-บนเครื่อง-client)
+   - [7.2 สร้าง SSH Key Pair](#72-สร้าง-ssh-key-pair-บนเครื่อง-client)
+   - [7.3 ส่ง Public Key ให้ Server Admin](#73-ส่ง-public-key-ให้-server-admin)
+   - [7.4 ตั้งค่า SSH Config File](#74-ตั้งค่า-ssh-config-file-แนะนำ--ไม่ต้องพิมพ์-option-ทุกครั้ง)
+   - [7.5 ตรวจสอบ IP เครื่อง Server](#75-ตรวจสอบ-ip-เครื่อง-server)
+   - [7.6 ทดสอบ SSH เข้าจาก LAN](#76-ทดสอบ-ssh-เข้าจากเครื่อง-client-ในวงเดียวกัน)
+   - [7.7 SFTP](#77-sftp-uploaddownload-files)
+   - [7.8 SCP](#78-scp-copy-file-แบบ-one-liner)
+   - [7.9 แก้ปัญหา Permission บน Windows](#79-แก้ปัญหา-permission-ของ-private-key-บน-windows)
 8. [การเข้าถึงจากภายนอกผ่าน VPN](#8-vpn-สำหรับเข้าจากภายนอก)
 9. [เพิ่มความปลอดภัยเพิ่มเติม (Hardening)](#9-security-hardening)
 10. [Troubleshooting](#10-troubleshooting)
@@ -123,13 +132,26 @@ Restart-Service sshd
 
 ## 3. ตั้งค่า Firewall
 
-Windows Firewall จะถูกเพิ่ม rule อัตโนมัติตอนติดตั้ง แต่ให้ตรวจสอบและล็อค Source IP ให้ตรงกับ subnet ของบริษัท:
+ตอนติดตั้ง OpenSSH Server Windows จะสร้าง Firewall rule ให้อัตโนมัติ แต่ rule นั้นเปิดรับ connection จาก **ทุก IP** ซึ่งไม่ปลอดภัย ควรลบทิ้งแล้วสร้างใหม่โดยล็อคให้รับเฉพาะ subnet LAN และ VPN เท่านั้น
+
+### หา Subnet ของเครื่องตัวเองก่อน
+
+```powershell
+ipconfig
+```
+
+ดูที่ **IPv4 Address** และ **Subnet Mask** ของ adapter ที่ต่อ LAN เช่น:
+- IPv4: `192.168.1.50`
+- Subnet Mask: `255.255.255.0`
+- Subnet: `192.168.1.0/24` (ใช้ค่านี้ในขั้นตอนถัดไป)
+
+### ตั้งค่า Firewall Rule
 
 ```powershell
 # ตรวจสอบ rule ที่มีอยู่
 Get-NetFirewallRule -Name *ssh*
 
-# ลบ rule เดิมที่เปิดทุก IP
+# ลบ rule เดิมที่เปิดรับทุก IP
 Remove-NetFirewallRule -Name "OpenSSH-Server-In-TCP"
 
 # สร้าง rule ใหม่ — อนุญาตเฉพาะ LAN subnet และ VPN subnet
@@ -141,16 +163,29 @@ New-NetFirewallRule `
     -Protocol TCP `
     -Action Allow `
     -LocalPort 22 `
-    -RemoteAddress 192.168.1.0/24, 10.8.0.0/24
-# แก้ 192.168.1.0/24 เป็น subnet LAN จริง
-# แก้ 10.8.0.0/24 เป็น subnet VPN จริง
+    -RemoteAddress "192.168.1.0/24","10.8.0.0/24"
 ```
 
-ตรวจสอบ IP ของเครื่องตัวเอง:
+> แก้ `192.168.1.0/24` เป็น subnet LAN จริงของเครื่อง
+> แก้ `10.8.0.0/24` เป็น subnet VPN จริงของบริษัท
+
+คำอธิบาย option แต่ละตัว:
+
+| Option | ความหมาย |
+|--------|----------|
+| `-Name` | ชื่อ internal ของ rule ใช้อ้างอิงตอนแก้ไขหรือลบ |
+| `-DisplayName` | ชื่อที่แสดงใน Windows Firewall UI |
+| `-Direction Inbound` | กรอง traffic ที่เข้ามาหาเครื่องนี้ |
+| `-Protocol TCP` | SSH ใช้ TCP |
+| `-Action Allow` | อนุญาต connection ที่ตรงเงื่อนไข |
+| `-LocalPort 22` | port ที่เปิดรับบนเครื่องนี้ |
+| `-RemoteAddress` | IP หรือ subnet ที่อนุญาตให้เชื่อมต่อเข้ามา — ใส่หลายค่าได้คั่นด้วย `,` |
+
+### ตรวจสอบว่า Rule ถูกสร้างแล้ว
 
 ```powershell
-ipconfig
-# ดู IPv4 Address ของ adapter ที่ต่อ LAN
+Get-NetFirewallRule -Name "OpenSSH-Server-In-TCP" | Format-List DisplayName, Enabled, Action
+Get-NetFirewallAddressFilter -AssociatedNetFirewallRule (Get-NetFirewallRule -Name "OpenSSH-Server-In-TCP")
 ```
 
 ---
@@ -278,44 +313,227 @@ Set-Acl "C:\sit-deploy" $acl
 
 ---
 
-## 7. ทดสอบเชื่อมต่อใน LAN
+## 7. ติดตั้งและตั้งค่า SSH Client + ทดสอบเชื่อมต่อใน LAN
 
-### ตรวจสอบ IP เครื่อง Server
+### 7.1 ติดตั้ง SSH Client บนเครื่อง Client
+
+#### Windows
+
+OpenSSH Client มาพร้อม Windows 10/11 แล้ว ตรวจสอบด้วย:
 
 ```powershell
+# ตรวจสอบว่ามีหรือยัง
+Get-WindowsCapability -Online | Where-Object Name -like 'OpenSSH.Client*'
+
+# ถ้าไม่มี ให้ติดตั้ง
+Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
+```
+
+ทดสอบว่าใช้งานได้:
+
+```powershell
+ssh -V
+# ควรแสดง: OpenSSH_for_Windows_x.x ...
+```
+
+#### macOS
+
+macOS มี SSH Client ติดมาแล้ว ตรวจสอบด้วย:
+
+```bash
+ssh -V
+```
+
+#### Linux (Ubuntu/Debian)
+
+```bash
+sudo apt update && sudo apt install openssh-client -y
+ssh -V
+```
+
+---
+
+### 7.2 สร้าง SSH Key Pair บนเครื่อง Client
+
+**ขั้นตอนที่ 1 — สร้าง folder `.ssh` ก่อน** (PowerShell จะไม่สร้างให้อัตโนมัติ)
+
+```powershell
+New-Item -ItemType Directory -Path "$env:USERPROFILE\.ssh" -Force
+```
+
+**ขั้นตอนที่ 2 — สร้าง Key Pair**
+
+```powershell
+ssh-keygen -t ed25519 -C "yourname-sit" -f "$env:USERPROFILE\.ssh\sit_deploy_key"
+```
+
+| Option | ความหมาย |
+|--------|----------|
+| `-t ed25519` | ประเภทของ algorithm — Ed25519 ปลอดภัยและเร็วกว่า RSA 4096 |
+| `-C "yourname-sit"` | Comment ติดท้าย public key ไว้บอกว่า key นี้เป็นของใคร/ใช้กับอะไร |
+| `-f "$env:USERPROFILE\.ssh\sit_deploy_key"` | ชื่อและ path ของไฟล์ key ที่จะสร้าง (ใช้ `$env:USERPROFILE` แทน `~` เพราะ PowerShell แปล `~` ไม่ได้ใน path ที่ส่งให้ ssh-keygen) |
+
+หลังรันคำสั่งจะถาม **passphrase** — เป็น password ที่ใช้ล็อค private key ไว้บนเครื่องตัวเอง แนะนำให้ตั้งเสมอ เพราะถ้าไฟล์หลุดออกไปคนอื่นก็ยังใช้ไม่ได้โดยไม่รู้ passphrase
+
+ไฟล์ที่ได้:
+- `C:\Users\<username>\.ssh\sit_deploy_key` — **private key** ห้ามแชร์หรือ copy ออกนอกเครื่อง
+- `C:\Users\<username>\.ssh\sit_deploy_key.pub` — **public key** ส่งให้ server admin นำไปวางบน server ได้เลย
+
+---
+
+### 7.3 ส่ง Public Key ให้ Server Admin
+
+```bash
+# แสดงเนื้อหา public key เพื่อ copy ส่งให้ admin
+cat ~/.ssh/sit_deploy_key.pub
+# ตัวอย่าง output:
+# ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... yourname-sit
+```
+
+Admin จะนำ public key ไปวางใน `C:\Users\deploy\.ssh\authorized_keys` บน server (ดูข้อ 4)
+
+---
+
+### 7.4 ตั้งค่า SSH Config File (แนะนำ — ไม่ต้องพิมพ์ option ทุกครั้ง)
+
+SSH Config File คือไฟล์ที่เก็บการตั้งค่าการเชื่อมต่อของแต่ละ server ไว้ล่วงหน้า แทนที่จะต้องพิมพ์ option ยาวๆ ทุกครั้ง เช่น `ssh -i ~/.ssh/sit_deploy_key -p 22 deploy@192.168.1.50` ก็ย่อเหลือแค่ `ssh sit`
+
+สร้างหรือแก้ไขไฟล์ที่ `C:\Users\<username>\.ssh\config` (ไม่มีนามสกุล):
+
+```powershell
+notepad "$env:USERPROFILE\.ssh\config"
+```
+
+วางเนื้อหาดังนี้:
+
+```sshconfig
+# SIT Server (ใน LAN)
+Host sit
+    HostName 192.168.1.50
+    User deploy
+    Port 22
+    IdentityFile C:\Users\<username>\.ssh\sit_deploy_key
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+
+# SIT Server ผ่าน VPN (จากภายนอก)
+Host sit-vpn
+    HostName 192.168.1.50
+    User deploy
+    Port 22
+    IdentityFile C:\Users\<username>\.ssh\sit_deploy_key
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+```
+
+คำอธิบาย option แต่ละตัว:
+
+| Option | ความหมาย |
+|--------|----------|
+| `Host sit` | ชื่อ alias ที่ใช้พิมพ์ตอน SSH เช่น `ssh sit` |
+| `HostName` | IP หรือ domain จริงของ server |
+| `User` | username ที่ใช้ login |
+| `Port` | port ของ SSH server (default 22) |
+| `IdentityFile` | path ของ private key — บน Windows ต้องใช้ path เต็ม เช่น `C:\Users\<username>\.ssh\sit_deploy_key` (ใช้ `~` ไม่ได้ใน config file บน Windows) |
+| `ServerAliveInterval 60` | ส่ง keepalive packet ทุก 60 วินาที ป้องกัน connection หลุดเวลา idle |
+| `ServerAliveCountMax 3` | ถ้าไม่ได้รับ response 3 ครั้งติดกัน ให้ตัด connection |
+
+หลังจากตั้งค่าแล้ว SSH เข้าได้แบบสั้น:
+
+```powershell
+# ใน LAN
+ssh sit
+
+# ผ่าน VPN
+ssh sit-vpn
+
+# ใช้กับ SCP และ SFTP ได้ด้วย
+scp ./app.zip sit:/sit-deploy/
+sftp sit
+```
+
+---
+
+### 7.5 ตรวจสอบ IP เครื่อง Server
+
+```powershell
+# รันบนเครื่อง Server
 ipconfig | Select-String "IPv4"
 # ตัวอย่าง: 192.168.1.50
 ```
 
-### SSH เข้าจากเครื่อง Client ในวงเดียวกัน
+---
+
+### 7.6 ทดสอบ SSH เข้าจากเครื่อง Client ในวงเดียวกัน
 
 ```bash
-# Password login
+# ใช้ SSH Config alias (หลังตั้งค่าข้อ 7.4)
+ssh sit
+
+# หรือพิมพ์เต็ม
 ssh deploy@192.168.1.50
 
-# Key login
+# Key login ระบุ identity file เอง
 ssh -i ~/.ssh/sit_deploy_key deploy@192.168.1.50
 
 # ระบุ port ถ้าเปลี่ยนจาก 22
 ssh -p 2222 -i ~/.ssh/sit_deploy_key deploy@192.168.1.50
 ```
 
-### SFTP (upload/download files)
+---
+
+### 7.7 SFTP (upload/download files)
 
 ```bash
-sftp deploy@192.168.1.50
-# หรือ
+# ใช้ alias จาก SSH Config
+sftp sit
+
+# หรือพิมพ์เต็ม
 sftp -i ~/.ssh/sit_deploy_key deploy@192.168.1.50
+
+# คำสั่งที่ใช้บ่อยใน SFTP shell
+# put localfile.zip /sit-deploy/     # อัปโหลด
+# get /sit-deploy/logs/app.log ./    # ดาวน์โหลด
+# ls /sit-deploy/                    # ดู directory บน server
+# lls                                # ดู directory บน local
+# exit
 ```
 
-### SCP (copy file โดยตรง)
+---
+
+### 7.8 SCP (copy file แบบ one-liner)
 
 ```bash
 # อัปโหลดไฟล์ไปยัง server
 scp -i ~/.ssh/sit_deploy_key ./app.zip deploy@192.168.1.50:/sit-deploy/
 
+# อัปโหลดทั้ง folder
+scp -r -i ~/.ssh/sit_deploy_key ./dist/ deploy@192.168.1.50:/sit-deploy/
+
 # ดาวน์โหลดไฟล์จาก server
 scp -i ~/.ssh/sit_deploy_key deploy@192.168.1.50:/sit-deploy/logs/app.log ./
+
+# ใช้ alias จาก SSH Config (สั้นกว่า)
+scp ./app.zip sit:/sit-deploy/
+scp sit:/sit-deploy/logs/app.log ./
+```
+
+---
+
+### 7.9 แก้ปัญหา Permission ของ Private Key บน Windows
+
+Windows บางครั้งให้ permission ของ private key กว้างเกินไป ทำให้ SSH ปฏิเสธการใช้งาน:
+
+```powershell
+# แก้ permission ของ private key ให้เป็นเจ้าของคนเดียว
+$keyFile = "$env:USERPROFILE\.ssh\sit_deploy_key"
+$acl = Get-Acl $keyFile
+$acl.SetAccessRuleProtection($true, $false)
+$rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+    $env:USERNAME, "FullControl", "Allow"
+)
+$acl.SetAccessRule($rule)
+Set-Acl $keyFile $acl
 ```
 
 ---

@@ -147,14 +147,30 @@ ipconfig
 
 ### ตั้งค่า Firewall Rule
 
+**ขั้นตอนที่ 1 — หาชื่อ rule เดิม**
+
 ```powershell
-# ตรวจสอบ rule ที่มีอยู่
-Get-NetFirewallRule -Name *ssh*
+Get-NetFirewallRule | Where-Object { $_.DisplayName -like "*ssh*" -or $_.DisplayName -like "*OpenSSH*" } | Select-Object Name, DisplayName
+```
 
-# ลบ rule เดิมที่เปิดรับทุก IP
-Remove-NetFirewallRule -Name "OpenSSH-Server-In-TCP"
+ชื่อ rule ที่ Windows สร้างให้อัตโนมัติอาจต่างกันในแต่ละเครื่อง เช่น:
+- `OpenSSH-Server-In-TCP`
+- `{AE636657-5B24-4CBD-9071-80B3BBF383B6}` (GUID)
 
-# สร้าง rule ใหม่ — อนุญาตเฉพาะ LAN subnet และ VPN subnet
+**ขั้นตอนที่ 2 — ลบ rule เดิม** (ใช้ชื่อที่ได้จากขั้นตอนที่ 1)
+
+```powershell
+Remove-NetFirewallRule -Name "ชื่อที่ได้จากขั้นตอนที่ 1"
+
+# ตัวอย่าง ถ้าได้ GUID
+Remove-NetFirewallRule -Name "{AE636657-5B24-4CBD-9071-80B3BBF383B6}"
+```
+
+> ถ้าค้นหาแล้วไม่มี rule เลย ข้ามขั้นตอนนี้ไปได้เลย
+
+**ขั้นตอนที่ 3 — สร้าง rule ใหม่ล็อค subnet**
+
+```powershell
 New-NetFirewallRule `
     -Name "OpenSSH-Server-In-TCP" `
     -DisplayName "OpenSSH Server (inbound)" `
